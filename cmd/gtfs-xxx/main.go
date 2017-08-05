@@ -82,8 +82,8 @@ func main() {
 				ddiff := cdt - pdt
 
 				fmt.Printf(
-					"skey %s update at %d (%d, %d) arrival %d -> %d (%d), departure %d -> %d (%d)\n",
-					skey, tuts, pent.ts, tutsdiff, pat, cat, adiff, pdt, cdt, ddiff,
+					"skey %s update at %d (%d) arrival %d -> %d (%d), departure %d -> %d (%d)\n",
+					skey, tuts, tutsdiff, pat, cat, adiff, pdt, cdt, ddiff,
 				)
 			}
 		}
