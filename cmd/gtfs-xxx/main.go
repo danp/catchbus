@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"time"
 
 	"github.com/danp/catchbus/gtfs/gtfsrt"
 	"github.com/gogo/protobuf/proto"
@@ -37,10 +36,6 @@ func main() {
 			if tuts == 0 {
 				tuts = m.GetHeader().GetTimestamp()
 			}
-			var tutss = "(unknown)"
-			if tuts > 0 {
-				tutss = time.Unix(int64(tuts), 0).Format("03:04:05 PM")
-			}
 
 			tkey := tu.GetTrip().GetStartDate() + "-" + tu.GetTrip().GetTripId()
 
@@ -62,33 +57,17 @@ func main() {
 					sa := pat == cat
 
 					if !sa {
-						x := time.Unix(pat, 0).Format("03:04:05 PM")
-						y := time.Unix(cat, 0).Format("03:04:05 PM")
-						fmt.Printf("skey %s update at %s arrival was %s now %s (%d)\n", skey, tutss, x, y, adiff)
+						fmt.Printf("skey %s update at %d arrival was %d now %d (%d)\n", skey, tuts, pat, cat, adiff)
 					}
 					if !sd {
-						x := time.Unix(pdt, 0).Format("03:04:05 PM")
-						y := time.Unix(cdt, 0).Format("03:04:05 PM")
-						fmt.Printf("skey %s update at %s departure was %s now %s (%d)\n", skey, tutss, x, y, ddiff)
+						fmt.Printf("skey %s update at %d departure was %d now %d (%d)\n", skey, tuts, pdt, cdt, ddiff)
 					}
 
 					if sd && sa {
 						continue
 					}
 				} else {
-					var (
-						x = "(unknown)"
-						y = "(unknown)"
-					)
-
-					if cat > 0 {
-						x = time.Unix(cat, 0).Format("03:04:05 PM")
-					}
-					if cdt > 0 {
-						y = time.Unix(cdt, 0).Format("03:04:05 PM")
-					}
-
-					fmt.Printf("skey %s first update at %s arrival %s, departure %s\n", skey, tutss, x, y)
+					fmt.Printf("skey %s first update at %d arrival %d, departure %d\n", skey, tuts, cat, cdt)
 				}
 
 				cache[skey] = stu
