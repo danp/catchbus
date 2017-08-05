@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"time"
 
 	"github.com/danp/catchbus/gtfs/gtfsrt"
 	"github.com/gogo/protobuf/proto"
@@ -16,13 +17,25 @@ type entry struct {
 	ts  uint64
 }
 
+var (
+	lastFile       string
+	stusProcessed  uint64
+	updatesEmitted uint64
+)
+
 func main() {
-	firstFile := true
-	initials := make(map[string]bool)
-	store := make(map[string]*entry)
+	var (
+		firstFile = true
+		initials  = make(map[string]bool)
+		store     = make(map[string]*entry)
+	)
+
+	go report()
 
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
+		lastFile = sc.Text()
+
 		b, err := ioutil.ReadFile(sc.Text())
 		if err != nil {
 			log.Fatal(err)
@@ -53,6 +66,8 @@ func main() {
 			}
 
 			for _, stu := range tu.GetStopTimeUpdate() {
+				stusProcessed++
+
 				skey := tkey + "-" + stu.GetStopId()
 
 				cat := stu.GetArrival().GetTime()
@@ -64,6 +79,8 @@ func main() {
 						stu: stu,
 						ts:  tuts,
 					}
+
+					updatesEmitted++
 
 					fmt.Printf(
 						"skey %s initial at %d, arrival %d, departure %d\n",
@@ -92,6 +109,8 @@ func main() {
 				adiff := cat - pat
 				ddiff := cdt - pdt
 
+				updatesEmitted++
+
 				fmt.Printf(
 					"skey %s update at %d (%d) arrival %d -> %d (%d), departure %d -> %d (%d)\n",
 					skey, tuts, tutsdiff, pat, cat, adiff, pdt, cdt, ddiff,
@@ -107,5 +126,12 @@ func main() {
 
 	if err := sc.Err(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func report() {
+	for range time.Tick(time.Second) {
+		upPct := float64(updatesEmitted) / float64(stusProcessed) * 100.0
+		log.Printf("last file: %s / stop time updates processed: %d / updates emitted: %d (%.2f%%)", lastFile, stusProcessed, updatesEmitted, upPct)
 	}
 }
