@@ -19,7 +19,7 @@ type entry struct {
 func main() {
 	firstFile := true
 	initials := make(map[string]bool)
-	cache := make(map[string]*entry)
+	store := make(map[string]*entry)
 
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
@@ -58,9 +58,9 @@ func main() {
 				cat := stu.GetArrival().GetTime()
 				cdt := stu.GetDeparture().GetTime()
 
-				pent, ok := cache[skey]
+				pent, ok := store[skey]
 				if !ok {
-					cache[skey] = &entry{
+					store[skey] = &entry{
 						stu: stu,
 						ts:  tuts,
 					}
@@ -83,7 +83,7 @@ func main() {
 					continue
 				}
 
-				cache[skey] = &entry{
+				store[skey] = &entry{
 					stu: stu,
 					ts:  tuts,
 				}
