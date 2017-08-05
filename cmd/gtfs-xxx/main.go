@@ -11,8 +11,13 @@ import (
 	"github.com/gogo/protobuf/proto"
 )
 
+type entry struct {
+	stu *gtfsrt.TripUpdate_StopTimeUpdate
+	ts  uint64
+}
+
 func main() {
-	cache := make(map[string]*gtfsrt.TripUpdate_StopTimeUpdate)
+	cache := make(map[string]*entry)
 
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
@@ -26,15 +31,12 @@ func main() {
 			log.Fatal(err)
 		}
 
+		tuts := m.GetHeader().GetTimestamp()
+
 		for _, e := range m.GetEntity() {
 			tu := e.GetTripUpdate()
 			if tu == nil {
 				continue
-			}
-
-			tuts := tu.GetTimestamp()
-			if tuts == 0 {
-				tuts = m.GetHeader().GetTimestamp()
 			}
 
 			tkey := tu.GetTrip().GetStartDate() + "-" + tu.GetTrip().GetTripId()
@@ -45,32 +47,44 @@ func main() {
 				cat := stu.GetArrival().GetTime()
 				cdt := stu.GetDeparture().GetTime()
 
-				pstu, ok := cache[skey]
-				if ok {
-					pat := pstu.GetArrival().GetTime()
-					adiff := cat - pat
-
-					pdt := pstu.GetDeparture().GetTime()
-					ddiff := cdt - pdt
-
-					sd := pdt == cdt
-					sa := pat == cat
-
-					if !sa {
-						fmt.Printf("skey %s update at %d arrival was %d now %d (%d)\n", skey, tuts, pat, cat, adiff)
-					}
-					if !sd {
-						fmt.Printf("skey %s update at %d departure was %d now %d (%d)\n", skey, tuts, pdt, cdt, ddiff)
+				pent, ok := cache[skey]
+				if !ok {
+					cache[skey] = &entry{
+						stu: stu,
+						ts:  tuts,
 					}
 
-					if sd && sa {
-						continue
-					}
-				} else {
-					fmt.Printf("skey %s first update at %d arrival %d, departure %d\n", skey, tuts, cat, cdt)
+					fmt.Printf(
+						"skey %s initial at %d, arrival %d, departure %d\n",
+						skey, tuts, cat, cdt,
+					)
+
+					continue
 				}
 
-				cache[skey] = stu
+				pat := pent.stu.GetArrival().GetTime()
+				pdt := pent.stu.GetDeparture().GetTime()
+
+				sd := pdt == cdt
+				sa := pat == cat
+
+				if sd && sa {
+					continue
+				}
+
+				cache[skey] = &entry{
+					stu: stu,
+					ts:  tuts,
+				}
+
+				tutsdiff := tuts - pent.ts
+				adiff := cat - pat
+				ddiff := cdt - pdt
+
+				fmt.Printf(
+					"skey %s update at %d (%d, %d) arrival %d -> %d (%d), departure %d -> %d (%d)\n",
+					skey, tuts, pent.ts, tutsdiff, pat, cat, adiff, pdt, cdt, ddiff,
+				)
 			}
 		}
 	}
