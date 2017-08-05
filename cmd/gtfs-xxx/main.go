@@ -17,6 +17,8 @@ type entry struct {
 }
 
 func main() {
+	firstFile := true
+	initials := make(map[string]bool)
 	cache := make(map[string]*entry)
 
 	sc := bufio.NewScanner(os.Stdin)
@@ -40,6 +42,15 @@ func main() {
 			}
 
 			tkey := tu.GetTrip().GetStartDate() + "-" + tu.GetTrip().GetTripId()
+
+			if firstFile {
+				initials[tkey] = true
+				continue
+			}
+
+			if initials[tkey] {
+				continue
+			}
 
 			for _, stu := range tu.GetStopTimeUpdate() {
 				skey := tkey + "-" + stu.GetStopId()
@@ -86,6 +97,11 @@ func main() {
 					skey, tuts, tutsdiff, pat, cat, adiff, pdt, cdt, ddiff,
 				)
 			}
+		}
+
+		if firstFile {
+			log.Printf("noted %d initial trips", len(initials))
+			firstFile = false
 		}
 	}
 
