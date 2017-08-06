@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -10,11 +9,15 @@ import (
 
 	"github.com/danp/catchbus/gtfs/gtfsrt"
 	"github.com/gogo/protobuf/proto"
+	"github.com/jmoiron/sqlx"
+
+	_ "github.com/lib/pq"
 )
 
 type entry struct {
-	stu *gtfsrt.TripUpdate_StopTimeUpdate
-	ts  uint64
+	stu     *gtfsrt.TripUpdate_StopTimeUpdate
+	initial bool
+	ts      uint64
 }
 
 var (
@@ -24,6 +27,11 @@ var (
 )
 
 func main() {
+	db, err := sqlx.Connect("postgres", "postgres://localhost/transitstuff?sslmode=disable")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	var (
 		firstFile = true
 		initials  = make(map[string]bool)
@@ -76,16 +84,25 @@ func main() {
 				pent, ok := store[skey]
 				if !ok {
 					store[skey] = &entry{
-						stu: stu,
-						ts:  tuts,
+						stu:     stu,
+						ts:      tuts,
+						initial: true,
 					}
 
 					updatesEmitted++
 
-					fmt.Printf(
-						"skey %s initial at %d, arrival %d, departure %d\n",
-						skey, tuts, cat, cdt,
+					_, err := db.Exec(
+						"insert into stop_time_updates (service_date, trip_id, stop_id, start_at, arrival_time, departure_time) values ($1, $2, $3, $4, $5, $6)",
+						tu.GetTrip().GetStartDate(),
+						tu.GetTrip().GetTripId(),
+						stu.GetStopId(),
+						tuts,
+						cat,
+						cdt,
 					)
+					if err != nil {
+						log.Fatal(err)
+					}
 
 					continue
 				}
@@ -105,16 +122,35 @@ func main() {
 					ts:  tuts,
 				}
 
-				tutsdiff := tuts - pent.ts
-				adiff := cat - pat
-				ddiff := cdt - pdt
-
 				updatesEmitted++
 
-				fmt.Printf(
-					"skey %s update at %d (%d) arrival %d -> %d (%d), departure %d -> %d (%d)\n",
-					skey, tuts, tutsdiff, pat, cat, adiff, pdt, cdt, ddiff,
-				)
+				if pent.initial {
+					_, err := db.Exec(
+						"update stop_time_updates set end_at=$1 where service_date=$2 and trip_id=$3 and stop_id=$4 and start_at=$5",
+						tuts,
+						tu.GetTrip().GetStartDate(),
+						tu.GetTrip().GetTripId(),
+						stu.GetStopId(),
+						pent.ts,
+					)
+					if err != nil {
+						log.Fatal(err)
+					}
+				} else {
+					_, err := db.Exec(
+						"insert into stop_time_updates (service_date, trip_id, stop_id, start_at, end_at, arrival_time, departure_time) values ($1, $2, $3, $4, $5, $6, $7)",
+						tu.GetTrip().GetStartDate(),
+						tu.GetTrip().GetTripId(),
+						stu.GetStopId(),
+						pent.ts,
+						tuts,
+						cat,
+						cdt,
+					)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
 			}
 		}
 
