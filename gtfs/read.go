@@ -178,11 +178,13 @@ func stopHandler(out *Static, rm map[string]string) error {
 	}
 	s.LocationType = lt
 
-	wb, err := strconv.Atoi(rm["wheelchair_boarding"])
-	if err != nil {
-		return err
+	if _, ok := rm["wheelchair_boarding"]; ok {
+		wb, err := strconv.Atoi(rm["wheelchair_boarding"])
+		if err != nil {
+			return err
+		}
+		s.WheelchairBoarding = wb
 	}
-	s.WheelchairBoarding = wb
 
 	out.Stops = append(out.Stops, s)
 	return nil
