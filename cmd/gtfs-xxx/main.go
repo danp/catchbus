@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"database/sql"
 	"io/ioutil"
 	"log"
 	"os"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/danp/catchbus/gtfs/gtfsrt"
 	"github.com/gogo/protobuf/proto"
-	"github.com/jmoiron/sqlx"
 
 	_ "github.com/lib/pq"
 )
@@ -27,7 +27,7 @@ var (
 )
 
 func main() {
-	db, err := sqlx.Connect("postgres", "postgres://localhost/transitstuff?sslmode=disable")
+	db, err := sql.Open("postgres", "postgres://localhost/transitstuff?sslmode=disable")
 	if err != nil {
 		log.Fatal(err)
 	}
