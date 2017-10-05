@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/danp/catchbus/gtfs/gtfsrt"
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 	"github.com/jmoiron/sqlx"
 	"github.com/jmoiron/sqlx/types"
 	"github.com/pkg/errors"
