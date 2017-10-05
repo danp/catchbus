@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"flag"
 	"log"
 	"time"
@@ -19,6 +20,7 @@ const archiveInterval = 5 * time.Second
 
 var (
 	s3BucketName = flag.String("s3-bucket-name", "", "S3 bucket for archived feeds")
+	useGzip      = flag.Bool("gzip", true, "gzip archived files")
 
 	tripUpdatesURL      = flag.String("trip-updates-url", "", "URL for GTFS-RT trip updates")
 	vehiclePositionsURL = flag.String("vehicle-positions-url", "", "URL for GTFS-RT vehicle positions")
@@ -103,6 +105,23 @@ func (s *source) archive() error {
 	b, err := proto.Marshal(d)
 	if err != nil {
 		return errors.Wrap(err, "marshaling data")
+	}
+
+	if *useGzip {
+		path += ".gz"
+
+		var bw bytes.Buffer
+		gz := gzip.NewWriter(&bw)
+
+		_, err := gz.Write(b)
+		if err == nil {
+			err = gz.Close()
+		}
+		if err != nil {
+			return errors.Wrap(err, "writing gzipped proto")
+		}
+
+		b = bw.Bytes()
 	}
 
 	_, err = s3c.PutObject(&s3.PutObjectInput{
