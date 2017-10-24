@@ -4,6 +4,8 @@ import (
 	"flag"
 	"log"
 
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/danp/catchbus/api"
 	"github.com/danp/catchbus/gtfs"
 	"github.com/danp/catchbus/gtfs/gtfsrt/feed"
@@ -34,10 +36,17 @@ func main() {
 	}
 	fd.Start()
 
+	sess := session.Must(session.NewSession())
+
+	hist := &history{
+		S3:     s3.New(sess),
+		Bucket: "hfxtransit-gtfs-archive",
+	}
+
 	pl := &planner.Planner{
 		Static: st,
 		Feed:   fd,
 	}
 
-	api.Start(st, pl, fd)
+	api.Start(st, pl, fd, hist)
 }

@@ -10,11 +10,14 @@ import (
 	"github.com/danp/catchbus/gtfs/gtfsrt"
 	"github.com/danp/catchbus/gtfs/gtfsrt/feed"
 	"github.com/danp/catchbus/planner"
-	"github.com/pressly/chi"
-	"github.com/pressly/chi/middleware"
+	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/middleware"
 )
 
-func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed) {
+type history interface {
+}
+
+func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 	mx := chi.NewMux()
 
 	mx.Use(middleware.RequestID)
@@ -114,6 +117,47 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed) {
 		resp.Departures = deps
 
 		wj(w, resp)
+	}))
+
+	mx.Get("/history/:kind", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		kind := chi.URLParam(r, "kind")
+
+		starts, ends := r.URL.Query().Get("startTime"), r.URL.Query().Get("endTime")
+		if starts == "" || ends == "" {
+			http.Error(w, "need startTime and endTime", http.StatusBadRequest)
+			return
+		}
+
+		start, err := time.Parse(time.RFC3339, starts)
+		if err != nil {
+			http.Error(w, "startTime parse error: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		end, err := time.Parse(time.RFC3339, ends)
+		if err != nil {
+			http.Error(w, "endTime parse error: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if !end.After(start) {
+			http.Error(w, "endTime must be after startTime", http.StatusBadRequest)
+			return
+		}
+
+		if end.Sub(start) > time.Hour {
+			http.Error(w, "startTime and endTime must be an hour or less apart", http.StatusBadRequest)
+			return
+		}
+
+		entries, err := hist.GetEntriesBetween(start, end)
+		if err != nil {
+			log.Println(err)
+			http.Error(w, "error fetching entries", http.StatusInternalServerError)
+			return
+		}
+
+		wj(w, entries)
 	}))
 
 	log.Printf("ready")
