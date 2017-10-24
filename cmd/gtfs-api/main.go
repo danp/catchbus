@@ -3,9 +3,11 @@ package main
 import (
 	"flag"
 	"log"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/danp/catchbus/api"
 	"github.com/danp/catchbus/gtfs"
 	"github.com/danp/catchbus/gtfs/gtfsrt/feed"
@@ -49,4 +51,13 @@ func main() {
 	}
 
 	api.Start(st, pl, fd, hist)
+}
+
+type history struct {
+	S3     s3iface.S3API
+	Bucket string
+}
+
+func (h *history) GetEntriesBetween(kind string, start, end time.Time) ([]api.HistoryEntry, error) {
+	return nil, nil
 }

@@ -14,7 +14,13 @@ import (
 	"github.com/go-chi/chi/middleware"
 )
 
+type HistoryEntry struct {
+	Time  time.Time
+	Entry *gtfsrt.FeedEntity
+}
+
 type history interface {
+	GetEntriesBetween(kind string, start, end time.Time) ([]HistoryEntry, error)
 }
 
 func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
@@ -150,7 +156,7 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 			return
 		}
 
-		entries, err := hist.GetEntriesBetween(start, end)
+		entries, err := hist.GetEntriesBetween(kind, start, end)
 		if err != nil {
 			log.Println(err)
 			http.Error(w, "error fetching entries", http.StatusInternalServerError)
