@@ -16,7 +16,7 @@ import (
 
 type HistoryEntry struct {
 	Time  time.Time
-	Entry *gtfsrt.FeedEntity
+	Entry *gtfsrt.FeedMessage
 }
 
 type history interface {
@@ -34,7 +34,7 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 		wj(w, st.Calendar)
 	}))
 
-	mx.Get("/calendar/:service_id", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mx.Get("/calendar/{service_id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serviceID := chi.URLParam(r, "service_id")
 
 		c, err := st.CalendarForServiceID(serviceID)
@@ -47,7 +47,7 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 		wj(w, c)
 	}))
 
-	mx.Get("/routes/:route_id/positions", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mx.Get("/routes/{route_id}/positions", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		routeID := chi.URLParam(r, "route_id")
 
 		trips := st.TripIDsForRouteID(routeID)
@@ -71,7 +71,7 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 		wj(w, vps)
 	}))
 
-	mx.Get("/routes/:route_id/updates", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mx.Get("/routes/{route_id}/updates", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		routeID := chi.URLParam(r, "route_id")
 
 		trips := st.TripIDsForRouteID(routeID)
@@ -95,7 +95,7 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 		wj(w, ups)
 	}))
 
-	mx.Get("/stops/:stop_id/departures", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mx.Get("/stops/{stop_id}/departures", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		stopID := chi.URLParam(r, "stop_id")
 		stop := st.StopIDsToStops[stopID]
 		if stop == nil {
@@ -125,7 +125,7 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 		wj(w, resp)
 	}))
 
-	mx.Get("/history/:kind", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mx.Get("/history/{kind}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		kind := chi.URLParam(r, "kind")
 
 		starts, ends := r.URL.Query().Get("startTime"), r.URL.Query().Get("endTime")
