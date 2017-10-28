@@ -20,7 +20,7 @@ type HistoryEntry struct {
 }
 
 type history interface {
-	GetEntriesBetween(kind string, start, end time.Time) ([]HistoryEntry, error)
+	GetAsOf(kind string, ts time.Time) (HistoryEntry, error)
 }
 
 func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
@@ -128,42 +128,26 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 	mx.Get("/history/{kind}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		kind := chi.URLParam(r, "kind")
 
-		starts, ends := r.URL.Query().Get("startTime"), r.URL.Query().Get("endTime")
-		if starts == "" || ends == "" {
-			http.Error(w, "need startTime and endTime", http.StatusBadRequest)
+		tss := r.URL.Query().Get("ts")
+		if tss == "" {
+			http.Error(w, "need ts", http.StatusBadRequest)
 			return
 		}
 
-		start, err := time.Parse(time.RFC3339, starts)
+		ts, err := time.Parse(time.RFC3339, tss)
 		if err != nil {
-			http.Error(w, "startTime parse error: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, "ts parse error: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		end, err := time.Parse(time.RFC3339, ends)
-		if err != nil {
-			http.Error(w, "endTime parse error: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		if !end.After(start) {
-			http.Error(w, "endTime must be after startTime", http.StatusBadRequest)
-			return
-		}
-
-		if end.Sub(start) > time.Hour {
-			http.Error(w, "startTime and endTime must be an hour or less apart", http.StatusBadRequest)
-			return
-		}
-
-		entries, err := hist.GetEntriesBetween(kind, start, end)
+		entry, err := hist.GetAsOf(kind, ts)
 		if err != nil {
 			log.Println(err)
-			http.Error(w, "error fetching entries", http.StatusInternalServerError)
+			http.Error(w, "error fetching entry", http.StatusInternalServerError)
 			return
 		}
 
-		wj(w, entries)
+		wj(w, entry)
 	}))
 
 	log.Printf("ready")

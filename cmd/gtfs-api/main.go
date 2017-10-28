@@ -2,12 +2,15 @@ package main
 
 import (
 	"compress/gzip"
+	"errors"
 	"flag"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -70,39 +73,62 @@ type history struct {
 	Bucket string
 }
 
-func (h *history) GetEntriesBetween(kind string, start, end time.Time) ([]api.HistoryEntry, error) {
-	var entries []api.HistoryEntry
+func (h *history) GetAsOf(kind string, ts time.Time) (api.HistoryEntry, error) {
+	var entry api.HistoryEntry
+
+	prefix := kind + "/" + ts.Format("2006/01/02/15") + "/" + kind + "-" + ts.Format("2006-01-02T15-04-")
+
+	lr, err := h.S3.ListObjects(&s3.ListObjectsInput{
+		Bucket: aws.String(h.Bucket),
+		Prefix: aws.String(prefix),
+	})
+	if err != nil {
+		return entry, err
+	}
+
+	if len(lr.Contents) == 0 {
+		return entry, errors.New("nothing found")
+	}
+
+	// Get newest key first in the slice.
+	sort.Slice(lr.Contents, func(i, j int) bool { return *lr.Contents[i].Key > *lr.Contents[j].Key })
+	key := lr.Contents[0].Key
 
 	resp, err := h.S3.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(h.Bucket),
-		Key:    aws.String("TripUpdates/2017/10/25/00/TripUpdates-2017-10-25T00-09-02Z.pb.gz"),
+		Key:    key,
 	})
 	if err != nil {
-		return nil, err
+		return entry, err
 	}
 	defer resp.Body.Close()
 
-	gzr, err := gzip.NewReader(resp.Body)
-	if err != nil {
-		return nil, err
+	var r io.Reader = resp.Body
+	if strings.HasSuffix(*key, ".gz") {
+		gzr, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return entry, err
+		}
+		defer gzr.Close()
+		r = gzr
 	}
 
-	b, err := ioutil.ReadAll(gzr)
+	b, err := ioutil.ReadAll(r)
 	if err != nil {
-		return nil, err
+		return entry, err
 	}
 
 	m := new(gtfsrt.FeedMessage)
 	if err := proto.Unmarshal(b, m); err != nil {
-		return nil, err
+		return entry, err
 	}
 
-	entries = append(entries, api.HistoryEntry{
+	entry = api.HistoryEntry{
 		Time:  time.Now(),
 		Entry: m,
-	})
+	}
 
-	return entries, nil
+	return entry, nil
 }
 
 func fetchZip(zurl string) string {
