@@ -78,10 +78,12 @@ func (h *history) GetAsOf(kind string, ts time.Time) (api.HistoryEntry, error) {
 
 	prefix := kind + "/" + ts.Format("2006/01/02/15") + "/" + kind + "-" + ts.Format("2006-01-02T15-04-")
 
-	lr, err := h.S3.ListObjects(&s3.ListObjectsInput{
+	req := &s3.ListObjectsInput{
 		Bucket: aws.String(h.Bucket),
 		Prefix: aws.String(prefix),
-	})
+	}
+
+	lr, err := h.S3.ListObjects(req)
 	if err != nil {
 		return entry, err
 	}
@@ -124,7 +126,7 @@ func (h *history) GetAsOf(kind string, ts time.Time) (api.HistoryEntry, error) {
 	}
 
 	entry = api.HistoryEntry{
-		Time:  time.Now(),
+		Time:  time.Unix(int64(m.GetHeader().GetTimestamp()), 0).UTC(),
 		Entry: m,
 	}
 

@@ -4,7 +4,7 @@ COPY . .
 RUN go install ./cmd/gtfs-api
 
 FROM alpine:3.6
-RUN apk add --no-cache tzdata
+RUN apk add --no-cache tzdata ca-certificates
 RUN adduser -D -h /app app
 WORKDIR /app
 USER app
