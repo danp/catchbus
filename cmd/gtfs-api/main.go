@@ -36,7 +36,7 @@ var (
 func main() {
 	flag.Parse()
 
-	if _, err := url.Parse(*zipPath); err == nil {
+	if u, err := url.Parse(*zipPath); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
 		*zipPath = fetchZip(*zipPath)
 	}
 
