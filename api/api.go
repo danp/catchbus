@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/NYTimes/gziphandler"
 	"github.com/danp/catchbus/gtfs"
 	"github.com/danp/catchbus/gtfs/gtfsrt"
 	"github.com/danp/catchbus/gtfs/gtfsrt/feed"
@@ -151,7 +152,7 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 	}))
 
 	log.Printf("ready")
-	log.Fatal(http.ListenAndServe("0.0.0.0:5000", mx))
+	log.Fatal(http.ListenAndServe("0.0.0.0:5000", gziphandler.GzipHandler(mx)))
 }
 
 func wj(w http.ResponseWriter, v interface{}) {
