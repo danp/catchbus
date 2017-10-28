@@ -151,7 +151,7 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 	}))
 
 	log.Printf("ready")
-	log.Fatal(http.ListenAndServe("127.0.0.1:5000", mx))
+	log.Fatal(http.ListenAndServe("0.0.0.0:5000", mx))
 }
 
 func wj(w http.ResponseWriter, v interface{}) {
