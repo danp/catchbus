@@ -151,6 +151,65 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 		wj(w, entry)
 	}))
 
+	mx.Get("/final-updates", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sts, ets := r.URL.Query().Get("startTime"), r.URL.Query().Get("endTime")
+		if sts == "" || ets == "" {
+			http.Error(w, "need startTime and endTime", http.StatusBadRequest)
+			return
+		}
+
+		st, err := time.Parse(time.RFC3339, sts)
+		if err != nil {
+			http.Error(w, "startTime parse error: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		st = st.Truncate(time.Minute)
+
+		et, err := time.Parse(time.RFC3339, ets)
+		if err != nil {
+			http.Error(w, "endTime parse error: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		et = et.Truncate(time.Minute)
+
+		if !et.After(st) {
+			http.Error(w, "endTime must be after startTime", http.StatusBadRequest)
+			return
+		}
+
+		if et.Sub(st) > 4 * time.Hour {
+			http.Error(w, "endTime must be no more than 4 hours after startTime", http.StatusBadRequest)
+			return
+		}
+
+		// fetch all files
+		// sort them
+		// set up map of trip stops
+		// for each file,
+		//   load
+		//   twiddle map
+		// delete data for any stops that were not passed at least 5m ago
+
+		var minutes []time.Time
+		for m := st; m.Before(et) || m.Equal(et); m = m.Add(time.Minute) {
+			minutes = append(minutes, m)
+		}
+
+		var hes []HistoryEntry
+		for _, m := range minutes {
+			he, err := hist.GetAsOf("TripUpdates", m)
+			if err != nil {
+				log.Println(err)
+				http.Error(w, "error fetching entry", http.StatusInternalServerError)
+				return
+			}
+			log.Println(he.Time)
+			hes = append(hes, he)
+		}
+
+		wj(w, []int{len(hes)})
+	}))
+
 	log.Printf("ready")
 	log.Fatal(http.ListenAndServe("0.0.0.0:5000", gziphandler.GzipHandler(mx)))
 }
