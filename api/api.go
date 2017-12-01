@@ -200,14 +200,9 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 			hes = append(hes, he)
 		}
 
-		type te struct {
-			asOf time.Time
-			stu  *gtfsrt.TripUpdate_StopTimeUpdate
-		}
-
 		type tustage struct {
 			tu   *gtfsrt.TripUpdate
-			stes map[string]te
+			stus map[string]*gtfsrt.TripUpdate_StopTimeUpdate
 		}
 
 		stage := make(map[string]tustage)
@@ -224,17 +219,12 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 				if !ok {
 					tus = tustage{
 						tu:   tu,
-						stes: make(map[string]te),
+						stus: make(map[string]*gtfsrt.TripUpdate_StopTimeUpdate),
 					}
 				}
 
 				for _, stu := range tu.GetStopTimeUpdate() {
-					skey := tkey + "-" + stu.GetStopId()
-
-					tus.stes[skey] = te{
-						asOf: he.Time,
-						stu:  stu,
-					}
+					tus.stus[tkey+"-"+stu.GetStopId()] = stu
 				}
 
 				stage[tkey] = tus
@@ -246,10 +236,10 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 			tu := tus.tu
 			tu.StopTimeUpdate = nil
 
-			for _, ste := range tus.stes {
-				it := ste.stu.GetDeparture().GetTime()
+			for _, stu := range tus.stus {
+				it := stu.GetDeparture().GetTime()
 				if it == 0 {
-					it = ste.stu.GetArrival().GetTime()
+					it = stu.GetArrival().GetTime()
 				}
 				itt := time.Unix(it, 0)
 
@@ -262,7 +252,7 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 					continue
 				}
 
-				tu.StopTimeUpdate = append(tu.StopTimeUpdate, ste.stu)
+				tu.StopTimeUpdate = append(tu.StopTimeUpdate, stu)
 			}
 
 			sort.Slice(tu.StopTimeUpdate, func(i, j int) bool {
