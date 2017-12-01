@@ -219,32 +219,17 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 					continue
 				}
 
-				debug := tu.GetTrip().GetTripId() == "16572623"
-
 				tkey := tu.GetTrip().GetStartDate() + "-" + tu.GetTrip().GetTripId()
 				tus, ok := stage[tkey]
 				if !ok {
-					if debug {
-						log.Printf("init new tus for %s", tkey)
-					}
 					tus = tustage{
 						tu:   tu,
 						stes: make(map[string]te),
 					}
-				} else if debug {
-					log.Printf("existing tus for %s", tkey)
 				}
 
 				for _, stu := range tu.GetStopTimeUpdate() {
 					skey := tkey + "-" + stu.GetStopId()
-
-					if debug {
-						log.Printf(
-							"set skey=%s asOf=%s stopSeq=%d arrival=%d departure=%d",
-							skey, he.Time, stu.GetStopSequence(),
-							stu.GetArrival().GetTime(), stu.GetDeparture().GetTime(),
-						)
-					}
 
 					tus.stes[skey] = te{
 						asOf: he.Time,
@@ -261,8 +246,6 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 			tu := tus.tu
 			tu.StopTimeUpdate = nil
 
-			debug := tu.GetTrip().GetTripId() == "16572623"
-
 			for _, ste := range tus.stes {
 				it := ste.stu.GetDeparture().GetTime()
 				if it == 0 {
@@ -275,23 +258,11 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 					tu.Timestamp = &itu64
 				}
 
-				if diff := ste.asOf.Sub(itt); diff >= 5*time.Minute {
-					if debug {
-						log.Printf(
-							"taking diff=%s asOf=%s stopSeq=%d arrival=%d departure=%d",
-							diff, ste.asOf, ste.stu.GetStopSequence(),
-							ste.stu.GetArrival().GetTime(), ste.stu.GetDeparture().GetTime(),
-						)
-					}
-
-					tu.StopTimeUpdate = append(tu.StopTimeUpdate, ste.stu)
-				} else if debug {
-					log.Printf(
-						"too new diff=%s asOf=%s stopSeq=%d arrival=%d departure=%d",
-						diff, ste.asOf, ste.stu.GetStopSequence(),
-						ste.stu.GetArrival().GetTime(), ste.stu.GetDeparture().GetTime(),
-					)
+				if diff := et.Sub(itt); diff < 5*time.Minute {
+					continue
 				}
+
+				tu.StopTimeUpdate = append(tu.StopTimeUpdate, ste.stu)
 			}
 
 			sort.Slice(tu.StopTimeUpdate, func(i, j int) bool {
