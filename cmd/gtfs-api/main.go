@@ -44,7 +44,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	st.FillMaps()
+	// st.FillMaps()
 
 	fd := &feed.Feed{
 		TripUpdatesURL:      *tripUpdatesURL,

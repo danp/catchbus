@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/NYTimes/gziphandler"
@@ -22,11 +23,6 @@ type HistoryEntry struct {
 
 type history interface {
 	GetAsOf(kind string, ts time.Time) (HistoryEntry, error)
-}
-
-type te struct {
-	asOf time.Time
-	stu  *gtfsrt.TripUpdate_StopTimeUpdate
 }
 
 func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
@@ -204,7 +200,17 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 			hes = append(hes, he)
 		}
 
-		stage := make(map[string]*te)
+		type te struct {
+			asOf time.Time
+			stu  *gtfsrt.TripUpdate_StopTimeUpdate
+		}
+
+		type tustage struct {
+			tu   *gtfsrt.TripUpdate
+			stes map[string]te
+		}
+
+		stage := make(map[string]tustage)
 
 		for _, he := range hes {
 			for _, e := range he.Entry.GetEntity() {
@@ -213,27 +219,89 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 					continue
 				}
 
+				debug := tu.GetTrip().GetTripId() == "16572623"
+
 				tkey := tu.GetTrip().GetStartDate() + "-" + tu.GetTrip().GetTripId()
+				tus, ok := stage[tkey]
+				if !ok {
+					if debug {
+						log.Printf("init new tus for %s", tkey)
+					}
+					tus = tustage{
+						tu:   tu,
+						stes: make(map[string]te),
+					}
+				} else if debug {
+					log.Printf("existing tus for %s", tkey)
+				}
+
 				for _, stu := range tu.GetStopTimeUpdate() {
 					skey := tkey + "-" + stu.GetStopId()
-					stage[skey] = &te{
+
+					if debug {
+						log.Printf(
+							"set skey=%s asOf=%s stopSeq=%d arrival=%d departure=%d",
+							skey, he.Time, stu.GetStopSequence(),
+							stu.GetArrival().GetTime(), stu.GetDeparture().GetTime(),
+						)
+					}
+
+					tus.stes[skey] = te{
 						asOf: he.Time,
 						stu:  stu,
 					}
 				}
+
+				stage[tkey] = tus
 			}
 		}
 
-		out := make(map[string]*gtfsrt.TripUpdate_StopTimeUpdate)
-		for skey, t := range stage {
-			it := t.stu.GetDeparture().GetTime()
-			if it == 0 {
-				it = t.stu.GetArrival().GetTime()
-			}
-			itt := time.Unix(it, 0)
+		out := new(gtfsrt.FeedMessage)
+		for _, tus := range stage {
+			tu := tus.tu
+			tu.StopTimeUpdate = nil
 
-			if t.asOf.Sub(itt) >= 5*time.Minute {
-				out[skey] = t.stu
+			debug := tu.GetTrip().GetTripId() == "16572623"
+
+			for _, ste := range tus.stes {
+				it := ste.stu.GetDeparture().GetTime()
+				if it == 0 {
+					it = ste.stu.GetArrival().GetTime()
+				}
+				itt := time.Unix(it, 0)
+
+				itu64 := uint64(it)
+				if itu64 > tu.GetTimestamp() {
+					tu.Timestamp = &itu64
+				}
+
+				if diff := ste.asOf.Sub(itt); diff >= 5*time.Minute {
+					if debug {
+						log.Printf(
+							"taking diff=%s asOf=%s stopSeq=%d arrival=%d departure=%d",
+							diff, ste.asOf, ste.stu.GetStopSequence(),
+							ste.stu.GetArrival().GetTime(), ste.stu.GetDeparture().GetTime(),
+						)
+					}
+
+					tu.StopTimeUpdate = append(tu.StopTimeUpdate, ste.stu)
+				} else if debug {
+					log.Printf(
+						"too new diff=%s asOf=%s stopSeq=%d arrival=%d departure=%d",
+						diff, ste.asOf, ste.stu.GetStopSequence(),
+						ste.stu.GetArrival().GetTime(), ste.stu.GetDeparture().GetTime(),
+					)
+				}
+			}
+
+			sort.Slice(tu.StopTimeUpdate, func(i, j int) bool {
+				return tu.StopTimeUpdate[i].GetStopSequence() < tu.StopTimeUpdate[j].GetStopSequence()
+			})
+
+			if len(tu.StopTimeUpdate) > 0 {
+				out.Entity = append(out.Entity, &gtfsrt.FeedEntity{
+					TripUpdate: tu,
+				})
 			}
 		}
 
@@ -241,7 +309,7 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 	}))
 
 	log.Printf("ready")
-	log.Fatal(http.ListenAndServe("0.0.0.0:5000", gziphandler.GzipHandler(mx)))
+	log.Fatal(http.ListenAndServe("127.0.0.1:5000", gziphandler.GzipHandler(mx)))
 }
 
 func wj(w http.ResponseWriter, v interface{}) {
