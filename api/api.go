@@ -24,6 +24,11 @@ type history interface {
 	GetAsOf(kind string, ts time.Time) (HistoryEntry, error)
 }
 
+type te struct {
+	asOf time.Time
+	stu  *gtfsrt.TripUpdate_StopTimeUpdate
+}
+
 func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 	mx := chi.NewMux()
 
@@ -177,18 +182,10 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 			return
 		}
 
-		if et.Sub(st) > 4 * time.Hour {
+		if et.Sub(st) > 4*time.Hour {
 			http.Error(w, "endTime must be no more than 4 hours after startTime", http.StatusBadRequest)
 			return
 		}
-
-		// fetch all files
-		// sort them
-		// set up map of trip stops
-		// for each file,
-		//   load
-		//   twiddle map
-		// delete data for any stops that were not passed at least 5m ago
 
 		var minutes []time.Time
 		for m := st; m.Before(et) || m.Equal(et); m = m.Add(time.Minute) {
@@ -207,7 +204,40 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 			hes = append(hes, he)
 		}
 
-		wj(w, []int{len(hes)})
+		stage := make(map[string]*te)
+
+		for _, he := range hes {
+			for _, e := range he.Entry.GetEntity() {
+				tu := e.GetTripUpdate()
+				if tu == nil {
+					continue
+				}
+
+				tkey := tu.GetTrip().GetStartDate() + "-" + tu.GetTrip().GetTripId()
+				for _, stu := range tu.GetStopTimeUpdate() {
+					skey := tkey + "-" + stu.GetStopId()
+					stage[skey] = &te{
+						asOf: he.Time,
+						stu:  stu,
+					}
+				}
+			}
+		}
+
+		out := make(map[string]*gtfsrt.TripUpdate_StopTimeUpdate)
+		for skey, t := range stage {
+			it := t.stu.GetDeparture().GetTime()
+			if it == 0 {
+				it = t.stu.GetArrival().GetTime()
+			}
+			itt := time.Unix(it, 0)
+
+			if t.asOf.Sub(itt) >= 5*time.Minute {
+				out[skey] = t.stu
+			}
+		}
+
+		wj(w, out)
 	}))
 
 	log.Printf("ready")
