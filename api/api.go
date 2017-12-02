@@ -183,6 +183,12 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 			return
 		}
 
+		var (
+			tripIDs  = r.URL.Query()["tripID"]
+			routeIDs = r.URL.Query()["routeID"]
+			stopIDs  = r.URL.Query()["stopID"]
+		)
+
 		var minutes []time.Time
 		for m := st; m.Before(et) || m.Equal(et); m = m.Add(time.Minute) {
 			minutes = append(minutes, m)
@@ -250,6 +256,10 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 					continue
 				}
 
+				if !contains(tripIDs, tu.GetTrip().GetTripId()) || !contains(routeIDs, tu.GetTrip().GetRouteId()) {
+					continue
+				}
+
 				tkey := tu.GetTrip().GetStartDate() + "-" + tu.GetTrip().GetTripId()
 				tus, ok := stage[tkey]
 				if !ok {
@@ -260,6 +270,10 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 				}
 
 				for _, stu := range tu.GetStopTimeUpdate() {
+					if !contains(stopIDs, stu.GetStopId()) {
+						continue
+					}
+
 					tus.stus[tkey+"-"+stu.GetStopId()] = stu
 				}
 
@@ -315,4 +329,17 @@ func wj(w http.ResponseWriter, v interface{}) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.Encode(v)
+}
+
+func contains(h []string, n string) bool {
+	// Nothing in h means allow all.
+	if len(h) == 0 {
+		return true
+	}
+	for _, x := range h {
+		if x == n {
+			return true
+		}
+	}
+	return false
 }
