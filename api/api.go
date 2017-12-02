@@ -188,16 +188,52 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 			minutes = append(minutes, m)
 		}
 
-		var hes []HistoryEntry
-		for _, m := range minutes {
-			he, err := hist.GetAsOf("TripUpdates", m)
-			if err != nil {
-				log.Println(err)
+		type hejob struct {
+			i   int
+			min time.Time
+		}
+
+		type heres struct {
+			i   int
+			he  HistoryEntry
+			err error
+		}
+
+		jch, rch := make(chan hejob), make(chan heres, len(minutes))
+		defer close(jch)
+
+		for i := 0; i < 10; i++ {
+			go func() {
+				for j := range jch {
+					he, err := hist.GetAsOf("TripUpdates", j.min)
+					hr := heres{
+						i:   j.i,
+						he:  he,
+						err: err,
+					}
+					rch <- hr
+				}
+			}()
+
+		}
+
+		for i, m := range minutes {
+			jch <- hejob{
+				i:   i,
+				min: m,
+			}
+		}
+
+		hes := make([]HistoryEntry, len(minutes))
+		for range minutes {
+			r := <-rch
+			if r.err != nil {
+				log.Println(r.err)
 				http.Error(w, "error fetching entry", http.StatusInternalServerError)
 				return
 			}
-			log.Println(he.Time)
-			hes = append(hes, he)
+			log.Printf("fetched minute=%s i=%d", minutes[r.i], r.i)
+			hes[r.i] = r.he
 		}
 
 		type tustage struct {
