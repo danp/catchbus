@@ -170,7 +170,9 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 		wj(w, fus)
 	}))
 
-	mx.Get("/final-updates.tsv", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mx.Get("/final-updates.csv", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/csv")
+
 		tz := st.Agencies[0].Timezone
 
 		fum, err := getFinalUpdates(hist, r)
@@ -184,7 +186,6 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 		}
 
 		cw := csv.NewWriter(w)
-		cw.Comma = '\t'
 
 		cw.Write([]string{"service_date", "trip_id", "route_id", "vehicle_id", "stop_id", "sched_arrival", "actual_arrival", "sched_departure", "actual_departure"})
 		for _, ent := range fum.GetEntity() {
