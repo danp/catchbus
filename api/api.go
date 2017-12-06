@@ -240,11 +240,11 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 				}
 
 				if t := stu.GetArrival().GetTime(); t > 0 {
-					actarr = time.Unix(t, 0).In(tz).Format("15:04")
+					actarr = time.Unix(t, 0).In(tz).Format("15:04:05")
 				}
 
 				if t := stu.GetDeparture().GetTime(); t > 0 {
-					actdep = time.Unix(t, 0).In(tz).Format("15:04")
+					actdep = time.Unix(t, 0).In(tz).Format("15:04:05")
 				}
 
 				cw.Write([]string{
