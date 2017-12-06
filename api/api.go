@@ -1,10 +1,14 @@
 package api
 
 import (
+	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/NYTimes/gziphandler"
@@ -153,174 +157,292 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 	}))
 
 	mx.Get("/final-updates", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sts, ets := r.URL.Query().Get("startTime"), r.URL.Query().Get("endTime")
-		if sts == "" || ets == "" {
-			http.Error(w, "need startTime and endTime", http.StatusBadRequest)
-			return
-		}
-
-		st, err := time.Parse(time.RFC3339, sts)
+		fus, err := getFinalUpdates(hist, r)
 		if err != nil {
-			http.Error(w, "startTime parse error: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		st = st.Truncate(time.Minute)
-
-		et, err := time.Parse(time.RFC3339, ets)
-		if err != nil {
-			http.Error(w, "endTime parse error: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		et = et.Truncate(time.Minute)
-
-		if !et.After(st) {
-			http.Error(w, "endTime must be after startTime", http.StatusBadRequest)
-			return
-		}
-
-		if et.Sub(st) > 4*time.Hour {
-			http.Error(w, "endTime must be no more than 4 hours after startTime", http.StatusBadRequest)
-			return
-		}
-
-		var (
-			tripIDs  = r.URL.Query()["tripID"]
-			routeIDs = r.URL.Query()["routeID"]
-			stopIDs  = r.URL.Query()["stopID"]
-		)
-
-		var minutes []time.Time
-		for m := st; m.Before(et) || m.Equal(et); m = m.Add(time.Minute) {
-			minutes = append(minutes, m)
-		}
-
-		type hejob struct {
-			i   int
-			min time.Time
-		}
-
-		type heres struct {
-			i   int
-			he  HistoryEntry
-			err error
-		}
-
-		jch, rch := make(chan hejob), make(chan heres, len(minutes))
-		defer close(jch)
-
-		for i := 0; i < 10; i++ {
-			go func() {
-				for j := range jch {
-					he, err := hist.GetAsOf("TripUpdates", j.min)
-					hr := heres{
-						i:   j.i,
-						he:  he,
-						err: err,
-					}
-					rch <- hr
-				}
-			}()
-
-		}
-
-		for i, m := range minutes {
-			jch <- hejob{
-				i:   i,
-				min: m,
+			if serr, ok := err.(statusError); ok {
+				http.Error(w, err.Error(), serr.status)
+			} else {
+				http.Error(w, "unknown error", http.StatusInternalServerError)
 			}
+			return
 		}
 
-		hes := make([]HistoryEntry, len(minutes))
-		for range minutes {
-			r := <-rch
-			if r.err != nil {
-				log.Println(r.err)
-				http.Error(w, "error fetching entry", http.StatusInternalServerError)
+		wj(w, fus)
+	}))
+
+	mx.Get("/final-updates.tsv", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tz := st.Agencies[0].Timezone
+
+		fum, err := getFinalUpdates(hist, r)
+		if err != nil {
+			if serr, ok := err.(statusError); ok {
+				http.Error(w, err.Error(), serr.status)
+			} else {
+				http.Error(w, "unknown error", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		cw := csv.NewWriter(w)
+		cw.Comma = '\t'
+
+		cw.Write([]string{"trip_id", "route_id", "vehicle_id", "stop_id", "sched_arrival", "actual_arrival", "sched_departure", "actual_departure"})
+		for _, ent := range fum.GetEntity() {
+			tu := ent.GetTripUpdate()
+			if tu == nil {
+				continue
+			}
+
+			var (
+				tripID   = tu.GetTrip().GetTripId()
+				routeID  = tu.GetTrip().GetRouteId()
+				vehLabel = tu.GetVehicle().GetLabel()
+			)
+
+			serviceDate, err := parseDateAtNoonInLocation(tu.GetTrip().GetStartDate(), tz)
+			if err != nil {
+				http.Error(w, "error parsing trip start date", http.StatusInternalServerError)
 				return
 			}
-			log.Printf("fetched minute=%s i=%d", minutes[r.i], r.i)
-			hes[r.i] = r.he
-		}
 
-		type tustage struct {
-			tu   *gtfsrt.TripUpdate
-			stus map[string]*gtfsrt.TripUpdate_StopTimeUpdate
-		}
+			startTime, err := parseTimeAsDuration(tu.GetTrip().GetStartTime())
+			if err != nil {
+				http.Error(w, "error parsing trip start time", http.StatusInternalServerError)
+				return
+			}
 
-		stage := make(map[string]tustage)
+			if startTime >= 24*time.Hour {
+				serviceDate = time.Date(serviceDate.Year(), serviceDate.Month(), serviceDate.Day()-1, 12, 0, 0, 0, tz)
+			}
 
-		for _, he := range hes {
-			for _, e := range he.Entry.GetEntity() {
-				tu := e.GetTripUpdate()
-				if tu == nil {
-					continue
-				}
+			for _, stu := range tu.GetStopTimeUpdate() {
+				var (
+					stopID = stu.GetStopId()
 
-				if !contains(tripIDs, tu.GetTrip().GetTripId()) || !contains(routeIDs, tu.GetTrip().GetRouteId()) {
-					continue
-				}
+					scharr string
+					actarr string
+					schdep string
+					actdep string
+				)
 
-				tkey := tu.GetTrip().GetStartDate() + "-" + tu.GetTrip().GetTripId()
-				tus, ok := stage[tkey]
-				if !ok {
-					tus = tustage{
-						tu:   tu,
-						stus: make(map[string]*gtfsrt.TripUpdate_StopTimeUpdate),
-					}
-				}
-
-				for _, stu := range tu.GetStopTimeUpdate() {
-					if !contains(stopIDs, stu.GetStopId()) {
+				log.Println(len(st.StopIDsToStopTimes), stopID, len(st.StopIDsToStopTimes[stopID]))
+				for _, sst := range st.StopIDsToStopTimes[stopID] {
+					if sst.TripID != tripID {
 						continue
 					}
 
-					tus.stus[tkey+"-"+stu.GetStopId()] = stu
+					scharr = serviceDate.Add(sst.ArrivalTime).UTC().Format(time.RFC3339)
+					schdep = serviceDate.Add(sst.DepartureTime).UTC().Format(time.RFC3339)
+
+					break
 				}
 
-				stage[tkey] = tus
-			}
-		}
-
-		out := new(gtfsrt.FeedMessage)
-		for _, tus := range stage {
-			tu := tus.tu
-			tu.StopTimeUpdate = nil
-
-			for _, stu := range tus.stus {
-				it := stu.GetDeparture().GetTime()
-				if it == 0 {
-					it = stu.GetArrival().GetTime()
-				}
-				itt := time.Unix(it, 0)
-
-				itu64 := uint64(it)
-				if itu64 > tu.GetTimestamp() {
-					tu.Timestamp = &itu64
+				if t := stu.GetArrival().GetTime(); t > 0 {
+					actarr = time.Unix(t, 0).UTC().Format(time.RFC3339)
 				}
 
-				if diff := et.Sub(itt); diff < 5*time.Minute {
-					continue
+				if t := stu.GetDeparture().GetTime(); t > 0 {
+					actdep = time.Unix(t, 0).UTC().Format(time.RFC3339)
 				}
 
-				tu.StopTimeUpdate = append(tu.StopTimeUpdate, stu)
-			}
-
-			sort.Slice(tu.StopTimeUpdate, func(i, j int) bool {
-				return tu.StopTimeUpdate[i].GetStopSequence() < tu.StopTimeUpdate[j].GetStopSequence()
-			})
-
-			if len(tu.StopTimeUpdate) > 0 {
-				out.Entity = append(out.Entity, &gtfsrt.FeedEntity{
-					TripUpdate: tu,
+				cw.Write([]string{
+					tripID,
+					routeID,
+					vehLabel,
+					stopID,
+					scharr,
+					actarr,
+					schdep,
+					actdep,
 				})
 			}
+
+			cw.Flush()
 		}
 
-		wj(w, out)
 	}))
 
 	log.Printf("ready")
 	log.Fatal(http.ListenAndServe("0.0.0.0:5000", gziphandler.GzipHandler(mx)))
+}
+
+type statusError struct {
+	msg    string
+	status int
+}
+
+func (s statusError) Error() string {
+	return s.msg
+}
+
+func getFinalUpdates(hist history, r *http.Request) (*gtfsrt.FeedMessage, error) {
+	// How long before an update is considered definitive.
+	const stabilityWait = 5 * time.Minute
+
+	sts, ets := r.URL.Query().Get("startTime"), r.URL.Query().Get("endTime")
+	if sts == "" || ets == "" {
+		return nil, statusError{"need startTime and endTime", http.StatusBadRequest}
+	}
+
+	st, err := time.Parse(time.RFC3339, sts)
+	if err != nil {
+		return nil, statusError{"startTime parse error: " + err.Error(), http.StatusBadRequest}
+	}
+	st = st.Truncate(time.Minute)
+
+	et, err := time.Parse(time.RFC3339, ets)
+	if err != nil {
+		return nil, statusError{"endTime parse error: " + err.Error(), http.StatusBadRequest}
+	}
+	et = et.Truncate(time.Minute)
+
+	if !et.After(st) {
+		return nil, statusError{"endTime must be after startTime", http.StatusBadRequest}
+	}
+
+	if et.Sub(st) > 4*time.Hour {
+		return nil, statusError{"endTime must be no more than 4 hours after startTime", http.StatusBadRequest}
+	}
+
+	// Subtract 2 * stable time from startTime so we can pick up things that left early.
+	st = st.Add(-2 * stabilityWait)
+
+	// Add stable time to endTime so we can pick up things that became final.
+	et = et.Add(stabilityWait)
+
+	var (
+		tripIDs  = r.URL.Query()["tripID"]
+		routeIDs = r.URL.Query()["routeID"]
+		stopIDs  = r.URL.Query()["stopID"]
+	)
+
+	var minutes []time.Time
+	for m := st; m.Before(et) || m.Equal(et); m = m.Add(time.Minute) {
+		minutes = append(minutes, m)
+	}
+
+	type hejob struct {
+		i   int
+		min time.Time
+	}
+
+	type heres struct {
+		i   int
+		he  HistoryEntry
+		err error
+	}
+
+	jch, rch := make(chan hejob), make(chan heres, len(minutes))
+	defer close(jch)
+
+	for i := 0; i < 10; i++ {
+		go func() {
+			for j := range jch {
+				he, err := hist.GetAsOf("TripUpdates", j.min)
+				hr := heres{
+					i:   j.i,
+					he:  he,
+					err: err,
+				}
+				rch <- hr
+			}
+		}()
+
+	}
+
+	for i, m := range minutes {
+		jch <- hejob{
+			i:   i,
+			min: m,
+		}
+	}
+
+	hes := make([]HistoryEntry, len(minutes))
+	for range minutes {
+		r := <-rch
+		if r.err != nil {
+			log.Println(r.err)
+			return nil, statusError{"error fetching entry", http.StatusInternalServerError}
+		}
+		log.Printf("fetched minute=%s i=%d", minutes[r.i], r.i)
+		hes[r.i] = r.he
+	}
+
+	type tustage struct {
+		tu   *gtfsrt.TripUpdate
+		stus map[string]*gtfsrt.TripUpdate_StopTimeUpdate
+	}
+
+	stage := make(map[string]tustage)
+
+	for _, he := range hes {
+		for _, e := range he.Entry.GetEntity() {
+			tu := e.GetTripUpdate()
+			if tu == nil {
+				continue
+			}
+
+			if !contains(tripIDs, tu.GetTrip().GetTripId()) || !contains(routeIDs, tu.GetTrip().GetRouteId()) {
+				continue
+			}
+
+			tkey := tu.GetTrip().GetStartDate() + "-" + tu.GetTrip().GetTripId()
+			tus, ok := stage[tkey]
+			if !ok {
+				tus = tustage{
+					tu:   tu,
+					stus: make(map[string]*gtfsrt.TripUpdate_StopTimeUpdate),
+				}
+			}
+
+			for _, stu := range tu.GetStopTimeUpdate() {
+				if !contains(stopIDs, stu.GetStopId()) {
+					continue
+				}
+
+				tus.stus[tkey+"-"+stu.GetStopId()] = stu
+			}
+
+			stage[tkey] = tus
+		}
+	}
+
+	out := new(gtfsrt.FeedMessage)
+	for _, tus := range stage {
+		tu := tus.tu
+		tu.StopTimeUpdate = nil
+
+		for _, stu := range tus.stus {
+			it := stu.GetDeparture().GetTime()
+			if it == 0 {
+				it = stu.GetArrival().GetTime()
+			}
+			itt := time.Unix(it, 0)
+
+			itu64 := uint64(it)
+			if itu64 > tu.GetTimestamp() {
+				tu.Timestamp = &itu64
+			}
+
+			if diff := et.Sub(itt); diff < stabilityWait {
+				continue
+			}
+
+			tu.StopTimeUpdate = append(tu.StopTimeUpdate, stu)
+		}
+
+		sort.Slice(tu.StopTimeUpdate, func(i, j int) bool {
+			return tu.StopTimeUpdate[i].GetStopSequence() < tu.StopTimeUpdate[j].GetStopSequence()
+		})
+
+		if len(tu.StopTimeUpdate) > 0 {
+			out.Entity = append(out.Entity, &gtfsrt.FeedEntity{
+				TripUpdate: tu,
+			})
+		}
+	}
+
+	return out, nil
 }
 
 func wj(w http.ResponseWriter, v interface{}) {
@@ -342,4 +464,33 @@ func contains(h []string, n string) bool {
 		}
 	}
 	return false
+}
+
+func parseDateAtNoonInLocation(ds string, loc *time.Location) (time.Time, error) {
+	d, err := time.ParseInLocation("20060102 15:04:05", ds+" 12:00:00", loc)
+	if err != nil {
+		return d, err
+	}
+	return d.Add(-(12 * time.Hour)), nil
+}
+
+func parseTimeAsDuration(ts string) (time.Duration, error) {
+	parts := strings.Split(ts, ":")
+	if len(parts) != 3 {
+		return 0, fmt.Errorf("time %q not in h:m:s format", ts)
+	}
+
+	h, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, err
+	}
+	m, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, err
+	}
+	s, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return 0, err
+	}
+	return time.Hour*time.Duration(h) + time.Minute*time.Duration(m) + time.Second*time.Duration(s), nil
 }

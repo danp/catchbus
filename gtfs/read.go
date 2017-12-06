@@ -39,6 +39,10 @@ func ReadZip(r io.ReaderAt, size int64) (*Static, error) {
 		return nil, err
 	}
 
+	if len(out.Agencies) == 0 {
+		return nil, errors.New("need at least one agency in agencies.txt")
+	}
+
 	if err := readFile(zr, out, "stops.txt", stopHandler); err != nil {
 		return nil, err
 	}
@@ -324,9 +328,7 @@ var numsToDays = map[int]string{
 }
 
 func calendarHandler(out *Static, rm map[string]string) error {
-	if len(out.Agencies) == 0 {
-		return errors.New("no agencies for calendar data")
-	}
+	// Guaranteed to have at least one Agency.
 	tz := out.Agencies[0].Timezone
 
 	var c Calendar
@@ -353,9 +355,7 @@ func calendarHandler(out *Static, rm map[string]string) error {
 }
 
 func calendarDateHandler(out *Static, rm map[string]string) error {
-	if len(out.Agencies) == 0 {
-		return errors.New("no agencies for calendar data")
-	}
+	// Guaranteed to have at least one Agency.
 	tz := out.Agencies[0].Timezone
 
 	var c CalendarDate
