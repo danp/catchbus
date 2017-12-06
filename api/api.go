@@ -186,18 +186,12 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 		cw := csv.NewWriter(w)
 		cw.Comma = '\t'
 
-		cw.Write([]string{"trip_id", "route_id", "vehicle_id", "stop_id", "sched_arrival", "actual_arrival", "sched_departure", "actual_departure"})
+		cw.Write([]string{"service_date", "trip_id", "route_id", "vehicle_id", "stop_id", "sched_arrival", "actual_arrival", "sched_departure", "actual_departure"})
 		for _, ent := range fum.GetEntity() {
 			tu := ent.GetTripUpdate()
 			if tu == nil {
 				continue
 			}
-
-			var (
-				tripID   = tu.GetTrip().GetTripId()
-				routeID  = tu.GetTrip().GetRouteId()
-				vehLabel = tu.GetVehicle().GetLabel()
-			)
 
 			serviceDate, err := parseDateAtNoonInLocation(tu.GetTrip().GetStartDate(), tz)
 			if err != nil {
@@ -212,8 +206,15 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 			}
 
 			if startTime >= 24*time.Hour {
-				serviceDate = time.Date(serviceDate.Year(), serviceDate.Month(), serviceDate.Day()-1, 12, 0, 0, 0, tz)
+				serviceDate = serviceDate.AddDate(0, 0, -1)
 			}
+
+			var (
+				tripID       = tu.GetTrip().GetTripId()
+				routeID      = tu.GetTrip().GetRouteId()
+				vehLabel     = tu.GetVehicle().GetLabel()
+				serviceDateS = serviceDate.Format("20060102")
+			)
 
 			for _, stu := range tu.GetStopTimeUpdate() {
 				var (
@@ -231,21 +232,22 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 						continue
 					}
 
-					scharr = serviceDate.Add(sst.ArrivalTime).UTC().Format(time.RFC3339)
-					schdep = serviceDate.Add(sst.DepartureTime).UTC().Format(time.RFC3339)
+					scharr = serviceDate.Add(sst.ArrivalTime).Format("15:04")
+					schdep = serviceDate.Add(sst.DepartureTime).Format("15:04")
 
 					break
 				}
 
 				if t := stu.GetArrival().GetTime(); t > 0 {
-					actarr = time.Unix(t, 0).UTC().Format(time.RFC3339)
+					actarr = time.Unix(t, 0).In(tz).Format("15:04")
 				}
 
 				if t := stu.GetDeparture().GetTime(); t > 0 {
-					actdep = time.Unix(t, 0).UTC().Format(time.RFC3339)
+					actdep = time.Unix(t, 0).In(tz).Format("15:04")
 				}
 
 				cw.Write([]string{
+					serviceDateS,
 					tripID,
 					routeID,
 					vehLabel,
