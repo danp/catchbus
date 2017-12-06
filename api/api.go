@@ -233,8 +233,8 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 						continue
 					}
 
-					scharr = serviceDate.Add(sst.ArrivalTime).Format("15:04")
-					schdep = serviceDate.Add(sst.DepartureTime).Format("15:04")
+					scharr = serviceDate.Add(sst.ArrivalTime).Format("15:04:05")
+					schdep = serviceDate.Add(sst.DepartureTime).Format("15:04:05")
 
 					break
 				}
