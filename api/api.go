@@ -214,7 +214,7 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 				tripID       = tu.GetTrip().GetTripId()
 				routeID      = tu.GetTrip().GetRouteId()
 				vehLabel     = tu.GetVehicle().GetLabel()
-				serviceDateS = serviceDate.Format("20060102")
+				serviceDateS = serviceDate.Format("01/02/2006")
 			)
 
 			for _, stu := range tu.GetStopTimeUpdate() {
