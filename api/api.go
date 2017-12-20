@@ -227,7 +227,6 @@ func Start(st *gtfs.Static, pl *planner.Planner, fd *feed.Feed, hist history) {
 					actdep string
 				)
 
-				log.Println(len(st.StopIDsToStopTimes), stopID, len(st.StopIDsToStopTimes[stopID]))
 				for _, sst := range st.StopIDsToStopTimes[stopID] {
 					if sst.TripID != tripID {
 						continue
@@ -367,7 +366,6 @@ func getFinalUpdates(hist history, r *http.Request) (*gtfsrt.FeedMessage, error)
 			log.Println(r.err)
 			return nil, statusError{"error fetching entry", http.StatusInternalServerError}
 		}
-		log.Printf("fetched minute=%s i=%d", minutes[r.i], r.i)
 		hes[r.i] = r.he
 	}
 
