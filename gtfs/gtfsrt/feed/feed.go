@@ -1,7 +1,7 @@
 package feed
 
 import (
-	"io/ioutil"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/danp/catchbus/gtfs/gtfsrt"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 // DefaultInterval is the default interval between feed fetches.
@@ -147,7 +147,7 @@ func (f *Feed) get(url string) (*gtfsrt.FeedMessage, error) {
 	}
 	defer resp.Body.Close()
 
-	b, err := ioutil.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("ns=feed fn=get url=%q at=err err=%q", url, err)
 		return nil, err

@@ -3,12 +3,11 @@ package main
 import (
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 
 	"github.com/danp/catchbus/gtfs/gtfsrt"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 func main() {
@@ -24,7 +23,7 @@ func main() {
 		rc = os.Stdin
 	}
 
-	b, err := ioutil.ReadAll(rc)
+	b, err := io.ReadAll(rc)
 	if err != nil {
 		log.Fatal(err)
 	}
