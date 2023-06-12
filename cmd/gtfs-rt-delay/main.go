@@ -15,6 +15,8 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	db, err := sql.Open("sqlite", "file:delay.db")
 	if err != nil {
 		log.Fatal(err)
@@ -24,6 +26,9 @@ func main() {
 		log.Fatal(err)
 	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS delay_samples (ts INTEGER, delay_bucket INTEGER, route_id TEXT, trip_id TEXT, stop_id TEXT)`); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS delay_observations_idx_hour_delay ON delay_observations(strftime('%Y-%m-%d %H:00',ts,'unixepoch'),delay_bucket)`); err != nil {
 		log.Fatal(err)
 	}
 
@@ -37,11 +42,17 @@ func main() {
 		if !first {
 			<-ticker.C
 		}
-		first = false
 
-		now, buckets, samples, err := tracker.run(context.Background())
+		now, buckets, samples, err := tracker.run(ctx)
 		if err != nil {
 			log.Println(err)
+			continue
+		}
+
+		if first {
+			// recording info from the first run might duplicate data
+			// from previous execution
+			first = false
 			continue
 		}
 
@@ -75,8 +86,6 @@ func main() {
 			log.Println(err)
 			continue
 		}
-
-		log.Printf("%v: %v", now.UTC().Format(time.RFC3339), buckets)
 	}
 }
 
@@ -146,7 +155,14 @@ func (t *tracker) run(ctx context.Context) (time.Time, map[time.Duration]int, ma
 }
 
 func (t *tracker) fetch(ctx context.Context) (*gtfsrt.FeedMessage, error) {
-	resp, err := http.Get("https://gtfs.halifax.ca/realtime/TripUpdate/TripUpdates.pb")
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://gtfs.halifax.ca/realtime/TripUpdate/TripUpdates.pb", nil)
+	if err != nil {
+		return nil, errutil.With(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
