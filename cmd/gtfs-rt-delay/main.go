@@ -22,13 +22,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS delay_observations (ts INTEGER, delay_bucket INTEGER, count INTEGER)`); err != nil {
-		log.Fatal(err)
-	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS delay_samples (ts INTEGER, delay_bucket INTEGER, route_id TEXT, trip_id TEXT, stop_id TEXT)`); err != nil {
-		log.Fatal(err)
-	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS delay_observations_idx_hour_delay ON delay_observations(strftime('%Y-%m-%d %H:00',ts,'unixepoch'),delay_bucket)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS delay_observations (ts INTEGER, route_id TEXT, delay_bucket INTEGER, count INTEGER, PRIMARY KEY (ts, route_id, delay_bucket)) WITHOUT ROWID`); err != nil {
 		log.Fatal(err)
 	}
 
@@ -43,7 +37,7 @@ func main() {
 			<-ticker.C
 		}
 
-		now, buckets, samples, err := tracker.run(ctx)
+		now, buckets, err := tracker.run(ctx)
 		if err != nil {
 			log.Println(err)
 			continue
@@ -56,22 +50,18 @@ func main() {
 			continue
 		}
 
-		func() error {
+		var observed int
+		err = func() error {
 			tx, err := db.Begin()
 			if err != nil {
 				return errutil.With(err)
 			}
 			defer tx.Rollback()
 
-			for delay, count := range buckets {
-				if _, err := tx.Exec(`INSERT INTO delay_observations (ts, delay_bucket, count) VALUES (?, ?, ?)`, now.Unix(), delay.Minutes(), count); err != nil {
-					return errutil.With(err)
-				}
-			}
-
-			for delay, samples := range samples {
-				for _, sample := range samples {
-					if _, err := tx.Exec(`INSERT INTO delay_samples (ts, delay_bucket, route_id, trip_id, stop_id) VALUES (?, ?, ?, ?, ?)`, now.Unix(), delay.Minutes(), sample.tu.GetTrip().GetRouteId(), sample.tu.GetTrip().GetTripId(), sample.stop.GetStopId()); err != nil {
+			for route, routeBuckets := range buckets {
+				for delay, count := range routeBuckets {
+					observed += count
+					if _, err := tx.Exec(`INSERT INTO delay_observations (ts, route_id, delay_bucket, count) VALUES (?, ?, ?, ?)`, now.Unix(), route, delay.Minutes(), count); err != nil {
 						return errutil.With(err)
 					}
 				}
@@ -86,6 +76,8 @@ func main() {
 			log.Println(err)
 			continue
 		}
+
+		log.Printf("%v: observed %v", now, observed)
 	}
 }
 
@@ -103,14 +95,13 @@ type tracker struct {
 	seen map[seenKey]struct{}
 }
 
-func (t *tracker) run(ctx context.Context) (time.Time, map[time.Duration]int, map[time.Duration][]sample, error) {
+func (t *tracker) run(ctx context.Context) (time.Time, map[string]map[time.Duration]int, error) {
 	data, err := t.fetch(ctx)
 	if err != nil {
-		return time.Time{}, nil, nil, errutil.With(err)
+		return time.Time{}, nil, errutil.With(err)
 	}
 
-	buckets := make(map[time.Duration]int)
-	samples := make(map[time.Duration][]sample)
+	buckets := make(map[string]map[time.Duration]int) // route -> delay -> count
 	observed := make(map[seenKey]struct{})
 
 	now := time.Now()
@@ -136,12 +127,10 @@ func (t *tracker) run(ctx context.Context) (time.Time, map[time.Duration]int, ma
 			}
 			t.seen[key] = struct{}{}
 			delay := (time.Duration(arrival.GetDelay()) * time.Second).Round(time.Minute)
-			buckets[delay]++
-
-			if len(samples[delay]) >= 5 {
-				continue
+			if buckets[tu.GetTrip().GetRouteId()] == nil {
+				buckets[tu.GetTrip().GetRouteId()] = make(map[time.Duration]int)
 			}
-			samples[delay] = append(samples[delay], sample{tu, stu})
+			buckets[tu.GetTrip().GetRouteId()][delay]++
 		}
 	}
 
@@ -151,7 +140,7 @@ func (t *tracker) run(ctx context.Context) (time.Time, map[time.Duration]int, ma
 		}
 	}
 
-	return now, buckets, samples, nil
+	return now, buckets, nil
 }
 
 func (t *tracker) fetch(ctx context.Context) (*gtfsrt.FeedMessage, error) {
