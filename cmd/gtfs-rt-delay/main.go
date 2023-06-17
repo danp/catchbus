@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"database/sql"
+	"flag"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/danp/catchbus/gtfs/gtfsrt"
@@ -17,7 +19,14 @@ import (
 func main() {
 	ctx := context.Background()
 
-	db, err := sql.Open("sqlite", "file:delay.db")
+	var feedURL string
+	var database string
+	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	fs.StringVar(&feedURL, "feed-url", "https://gtfs.halifax.ca/realtime/TripUpdate/TripUpdates.pb", "GTFS-RT feed URL")
+	fs.StringVar(&database, "database", "delay.db", "database file")
+	fs.Parse(os.Args[1:])
+
+	db, err := sql.Open("sqlite", "file:"+database+"?_pragma=journal_mode(wal)")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -29,7 +38,7 @@ func main() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
-	tracker := &tracker{make(map[seenKey]struct{})}
+	tracker := tracker{feedURL, make(map[seenKey]struct{})}
 
 	first := true
 	for {
@@ -92,10 +101,11 @@ type seenKey struct {
 }
 
 type tracker struct {
-	seen map[seenKey]struct{}
+	feedURL string
+	seen    map[seenKey]struct{}
 }
 
-func (t *tracker) run(ctx context.Context) (time.Time, map[string]map[time.Duration]int, error) {
+func (t tracker) run(ctx context.Context) (time.Time, map[string]map[time.Duration]int, error) {
 	data, err := t.fetch(ctx)
 	if err != nil {
 		return time.Time{}, nil, errutil.With(err)
@@ -113,9 +123,12 @@ func (t *tracker) run(ctx context.Context) (time.Time, map[string]map[time.Durat
 		tu := entity.GetTripUpdate()
 		for _, stu := range tu.StopTimeUpdate {
 			arrival := stu.GetArrival()
+			if arrival == nil {
+				continue
+			}
 			var arrivalTime time.Time
-			if arrival.Time != nil {
-				arrivalTime = time.Unix(arrival.GetTime(), 0)
+			if t := arrival.GetTime(); t > 0 {
+				arrivalTime = time.Unix(t, 0)
 			}
 			if arrivalTime.IsZero() || arrivalTime.After(now) {
 				continue
@@ -143,11 +156,11 @@ func (t *tracker) run(ctx context.Context) (time.Time, map[string]map[time.Durat
 	return now, buckets, nil
 }
 
-func (t *tracker) fetch(ctx context.Context) (*gtfsrt.FeedMessage, error) {
+func (t tracker) fetch(ctx context.Context) (*gtfsrt.FeedMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://gtfs.halifax.ca/realtime/TripUpdate/TripUpdates.pb", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", t.feedURL, nil)
 	if err != nil {
 		return nil, errutil.With(err)
 	}
